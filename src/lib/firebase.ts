@@ -18,6 +18,7 @@ import {
   onSnapshot,
   query,
   getDocFromServer,
+  writeBatch,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -51,5 +52,6 @@ export {
   deleteDoc,
   onSnapshot,
   query,
+  writeBatch,
 };
 export type { FirebaseUser };

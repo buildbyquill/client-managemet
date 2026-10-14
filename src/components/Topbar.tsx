@@ -22,6 +22,8 @@ export const Topbar: React.FC = () => {
     setShareModalOpen,
     theme,
     toggleTheme,
+    clients,
+    isFirestoreSyncing,
   } = useWorkspace();
 
   const [showNotifications, setShowNotifications] = useState(false);
@@ -115,11 +117,35 @@ export const Topbar: React.FC = () => {
 
         {/* Live Database Sync Status */}
         <div
-          title="All lead records loaded and stored securely in Firestore"
-          className="hidden md:flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-xl border bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20 shadow-2xs"
+          title={
+            firebaseUser
+              ? `Connected to Firebase Cloud Firestore. ${clients.length} leads synced across all team members' devices.`
+              : `Connected to Express backend server. ${clients.length} leads saved. Sign in with Google to enable cloud sync across all devices.`
+          }
+          className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-xl border shadow-2xs ${
+            isFirestoreSyncing
+              ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border-indigo-500/20'
+              : firebaseUser
+              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
+              : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
+          }`}
         >
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span>Synced</span>
+          <span
+            className={`w-2 h-2 rounded-full ${
+              isFirestoreSyncing
+                ? 'bg-indigo-500 animate-spin'
+                : firebaseUser
+                ? 'bg-emerald-500 animate-pulse'
+                : 'bg-amber-500'
+            }`}
+          />
+          <span>
+            {isFirestoreSyncing
+              ? 'Syncing Cloud...'
+              : firebaseUser
+              ? `Cloud (${clients.length} Leads)`
+              : `Server (${clients.length} Leads)`}
+          </span>
         </div>
 
         {/* DESIGN TOGGLE BUTTON */}

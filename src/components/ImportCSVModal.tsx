@@ -11,13 +11,15 @@ import {
   Download,
   Copy,
   Check,
+  Cloud,
+  Loader2,
 } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { parseCSVString, convertRowsToLeads, getSampleCSVTemplate, STANDARD_CSV_HEADERS } from '../utils/csvParser';
 import { Client } from '../types';
 
 export const ImportCSVModal: React.FC = () => {
-  const { clients, isImportCSVModalOpen, setImportCSVModalOpen, importClients } = useWorkspace();
+  const { clients, isImportCSVModalOpen, setImportCSVModalOpen, importClients, isFirestoreSyncing, firebaseUser } = useWorkspace();
 
   const [rawText, setRawText] = useState('');
   const [parsedRows, setParsedRows] = useState<Omit<Client, 'id' | 'dateAdded'>[]>([]);
@@ -26,6 +28,7 @@ export const ImportCSVModal: React.FC = () => {
   const [successCount, setSuccessCount] = useState<number | null>(null);
   const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
   const [isTemplateCopied, setIsTemplateCopied] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   if (!isImportCSVModalOpen) return null;
 
@@ -94,17 +97,25 @@ export const ImportCSVModal: React.FC = () => {
     reader.readAsText(file);
   };
 
-  const handleImport = () => {
-    if (parsedRows.length === 0) return;
+  const handleImport = async () => {
+    if (parsedRows.length === 0 || isImporting) return;
+    setIsImporting(true);
+    setErrorMsg(null);
 
-    const count = importClients(parsedRows, importMode === 'replace');
-    setSuccessCount(count);
-    setTimeout(() => {
-      setImportCSVModalOpen(false);
-      setParsedRows([]);
-      setRawText('');
-      setSuccessCount(null);
-    }, 1200);
+    try {
+      const count = await importClients(parsedRows, importMode === 'replace');
+      setSuccessCount(count);
+      setTimeout(() => {
+        setImportCSVModalOpen(false);
+        setParsedRows([]);
+        setRawText('');
+        setSuccessCount(null);
+      }, 1400);
+    } catch (err: any) {
+      setErrorMsg('Failed to import leads: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   return (
@@ -131,6 +142,33 @@ export const ImportCSVModal: React.FC = () => {
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Backend & Cloud Database Sync Indicator */}
+        <div className="flex items-center justify-between px-3 py-2 rounded-xl text-xs bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/80 mt-3">
+          <div className="flex items-center gap-2">
+            <Cloud className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <span className="font-semibold text-slate-800 dark:text-slate-200">
+              Backend Storage:
+            </span>
+            <span className="text-slate-600 dark:text-slate-400">
+              {firebaseUser ? (
+                <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                  Firebase Cloud Firestore (Multi-Device Team Sync Active)
+                </span>
+              ) : (
+                <span className="text-amber-600 dark:text-amber-400 font-medium">
+                  Server Storage Active • Sign in with Google (via Topbar) for live team cloud sync
+                </span>
+              )}
+            </span>
+          </div>
+          {isFirestoreSyncing && (
+            <div className="flex items-center gap-1 text-indigo-600 font-medium animate-pulse shrink-0">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>Syncing...</span>
+            </div>
+          )}
         </div>
 
         {/* 11-Column Quick Reference & Template Helper Banner */}
@@ -351,12 +389,21 @@ export const ImportCSVModal: React.FC = () => {
           </button>
 
           <button
-            disabled={parsedRows.length === 0}
+            disabled={parsedRows.length === 0 || isImporting}
             onClick={handleImport}
             className="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white shadow-sm transition"
           >
-            <span>Import {parsedRows.length} Leads</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            {isImporting ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Storing {parsedRows.length} Leads in Backend...</span>
+              </>
+            ) : (
+              <>
+                <span>Import {parsedRows.length} Leads</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </>
+            )}
           </button>
         </div>
       </div>

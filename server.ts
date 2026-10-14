@@ -675,6 +675,117 @@ app.post('/api/data', (req, res) => {
   res.json(updated);
 });
 
+// Dedicated Leads Endpoints for Backend Lead Storage & Team Sync
+app.get('/api/leads', (req, res) => {
+  const data = getWorkspaceData();
+  const leads = (data.clients || []).filter(
+    (c: any) => !['client-1', 'client-2', 'client-3', 'client-4'].includes(c.id)
+  );
+  res.json({ leads, count: leads.length });
+});
+
+app.post('/api/leads/import', (req, res) => {
+  const { leads, replace } = req.body;
+  if (!Array.isArray(leads)) {
+    return res.status(400).json({ error: 'Expected leads array' });
+  }
+
+  const current = getWorkspaceData();
+  const existing = replace
+    ? []
+    : (current.clients || []).filter(
+        (c: any) => !['client-1', 'client-2', 'client-3', 'client-4'].includes(c.id)
+      );
+
+  const cleanLeads = leads.map((lead: any, idx: number) => ({
+    ...lead,
+    id: lead.id || `c-imp-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+    dateAdded: lead.dateAdded || new Date().toISOString().split('T')[0],
+  }));
+
+  const updatedClients = [...cleanLeads, ...existing];
+  const updated = saveWorkspaceData({ clients: updatedClients });
+
+  broadcastSSE({
+    type: 'workspace:updated',
+    data: updated,
+    sourceClientId: req.headers['x-client-id'] as string | undefined,
+    timestamp: Date.now(),
+  });
+
+  res.json({
+    success: true,
+    importedCount: cleanLeads.length,
+    totalCount: updatedClients.length,
+    leads: updatedClients,
+  });
+});
+
+app.post('/api/leads', (req, res) => {
+  const newLead = req.body;
+  if (!newLead || (!newLead.name && !newLead.title)) {
+    return res.status(400).json({ error: 'Lead title or name required' });
+  }
+
+  const current = getWorkspaceData();
+  const existing = current.clients || [];
+  const leadWithId = {
+    ...newLead,
+    id: newLead.id || `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    dateAdded: newLead.dateAdded || new Date().toISOString().split('T')[0],
+  };
+
+  const updated = saveWorkspaceData({ clients: [leadWithId, ...existing] });
+  broadcastSSE({
+    type: 'workspace:updated',
+    data: updated,
+    sourceClientId: req.headers['x-client-id'] as string | undefined,
+    timestamp: Date.now(),
+  });
+
+  res.status(201).json(leadWithId);
+});
+
+app.put('/api/leads/:id', (req, res) => {
+  const { id } = req.params;
+  const updates = req.body;
+  const current = getWorkspaceData();
+  const clients = current.clients || [];
+  const idx = clients.findIndex((c: any) => c.id === id);
+
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Lead not found' });
+  }
+
+  clients[idx] = { ...clients[idx], ...updates, id };
+  const updated = saveWorkspaceData({ clients });
+
+  broadcastSSE({
+    type: 'workspace:updated',
+    data: updated,
+    sourceClientId: req.headers['x-client-id'] as string | undefined,
+    timestamp: Date.now(),
+  });
+
+  res.json(clients[idx]);
+});
+
+app.delete('/api/leads/:id', (req, res) => {
+  const { id } = req.params;
+  const current = getWorkspaceData();
+  const clients = (current.clients || []).filter((c: any) => c.id !== id);
+  const updated = saveWorkspaceData({ clients });
+
+  broadcastSSE({
+    type: 'workspace:updated',
+    data: updated,
+    sourceClientId: req.headers['x-client-id'] as string | undefined,
+    timestamp: Date.now(),
+  });
+
+  res.json({ success: true, id });
+});
+
 // Get chat messages
 app.get('/api/chat', (req, res) => {
   const current = getWorkspaceData();

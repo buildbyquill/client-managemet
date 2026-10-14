@@ -62,6 +62,15 @@ import {
   INITIAL_CHAT_MESSAGES,
   INITIAL_SETTINGS,
 } from '../data/initialData';
+import { auth, onAuthStateChanged, FirebaseUser } from '../lib/firebase';
+import {
+  saveLeadsToFirestore,
+  saveLeadToFirestore,
+  deleteLeadFromFirestore,
+  deleteMultipleLeadsFromFirestore,
+  subscribeToFirestoreLeads,
+  sanitizeDocId,
+} from '../services/firestoreService';
 
 interface WorkspaceContextType {
   activeTab: NavigationTab;
@@ -89,11 +98,17 @@ interface WorkspaceContextType {
   updateClients: (ids: string[], updates: Partial<Client>) => void;
   deleteClient: (id: string) => void;
   deleteClients: (ids: string[]) => void;
-  importClients: (newClients: Omit<Client, 'id' | 'dateAdded'>[], replace?: boolean) => number;
+  importClients: (newClients: Omit<Client, 'id' | 'dateAdded'>[], replace?: boolean) => Promise<number>;
   resetToDefaultLeads: () => void;
   selectedClientId: string | null;
   setSelectedClientId: (id: string | null) => void;
   selectedClient: Client | null;
+
+  // Cloud Database (Firestore)
+  isFirestoreSyncing: boolean;
+  firebaseUser: FirebaseUser | null;
+  firestoreLeadCount: number;
+  syncLeadsToCloud: () => Promise<{ success: boolean; count: number; error?: string }>;
 
   // Lead Filters & Projections
   leadFilters: LeadFilterState;
@@ -234,6 +249,18 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
 
+  // ─── Firebase Cloud Database State ─────────────────────────────────────────
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [isFirestoreSyncing, setIsFirestoreSyncing] = useState<boolean>(false);
+  const [firestoreLeadCount, setFirestoreLeadCount] = useState<number>(0);
+
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setFirebaseUser(user);
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
   // ─── Clients (persisted, dummy starter leads removed) ─────────────────────
   const [clients, setClients] = useState<Client[]>(() => {
     try {
@@ -338,20 +365,29 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }).catch((err) => console.warn('Error saving to server:', err));
   }, [clientSessionId]);
 
-  // Fetch remote data — only applied if localStorage has not been initialized
+  // Fetch remote data from backend server
   const fetchWorkspaceData = useCallback(async () => {
     try {
-      const res = await fetch('/api/data');
-      if (!res.ok) return;
-      const data = await res.json();
-      if (Array.isArray(data.clients)) {
+      // First try dedicated /api/leads endpoint
+      const res = await fetch('/api/leads');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.leads) && data.leads.length > 0) {
+          setClients((prev) => (prev.length === 0 ? data.leads : prev));
+          return;
+        }
+      }
+
+      // Fallback to /api/data
+      const fallbackRes = await fetch('/api/data');
+      if (!fallbackRes.ok) return;
+      const data = await fallbackRes.json();
+      if (Array.isArray(data.clients) && data.clients.length > 0) {
         const cleaned = data.clients.filter(
           (c: any) => !['client-1', 'client-2', 'client-3', 'client-4'].includes(c.id)
         );
-        const saved = localStorage.getItem(STORAGE_KEYS.CLIENTS);
-        if (saved === null && cleaned.length > 0) {
-          setClients(cleaned);
-        }
+        // Make backend leads available without being blocked by empty localStorage!
+        setClients((prev) => (prev.length === 0 ? cleaned : prev));
       }
     } catch (e) {
       console.warn('Could not sync with backend:', e);
@@ -426,7 +462,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     initSSE();
 
-    // Polling backup every 60 s — only syncs if local state is empty
+    // Polling backup every 60 s
     const interval = setInterval(fetchWorkspaceData, 60000);
 
     return () => {
@@ -435,6 +471,40 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       clearInterval(interval);
     };
   }, [clientSessionId, fetchRegisteredUsers, fetchWorkspaceData]);
+
+  // ─── Real-time Firestore Cloud Subscription ────────────────────────────────
+  useEffect(() => {
+    if (!firebaseUser) return;
+    setIsFirestoreSyncing(true);
+    const unsubscribe = subscribeToFirestoreLeads(
+      (firestoreLeads) => {
+        setIsFirestoreSyncing(false);
+        if (firestoreLeads && firestoreLeads.length > 0) {
+          const cleaned = firestoreLeads.filter(
+            (c: any) => !['client-1', 'client-2', 'client-3', 'client-4'].includes(c.id)
+          );
+          setClients(cleaned);
+          setFirestoreLeadCount(cleaned.length);
+          saveToServer({ clients: cleaned });
+        } else {
+          // If Firestore is empty but we have local/server leads, auto-sync them to Firestore
+          if (stateRef.current.clients.length > 0) {
+            saveLeadsToFirestore(stateRef.current.clients, firebaseUser.uid)
+              .then((res) => {
+                if (res.success) setFirestoreLeadCount(res.count);
+              })
+              .catch((err) => console.warn('Auto-sync to Firestore failed:', err));
+          }
+        }
+      },
+      (err) => {
+        setIsFirestoreSyncing(false);
+        console.warn('Firestore subscription status:', err.message);
+      }
+    );
+    return () => unsubscribe();
+  }, [firebaseUser, saveToServer]);
+
 
   // ─── Auth ─────────────────────────────────────────────────────────────────
   const login = async (username: string, password: string) => {
@@ -476,38 +546,46 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setAuthUser(null);
   }, []);
 
-  // ─── Client CRUD ─────────────────────────────────────────────────────────
+  // ─── Client CRUD with Cloud Database & Backend Persistence ─────────────────
   const addClient = useCallback((newClientData: Omit<Client, 'id' | 'dateAdded'>) => {
+    const cleanId = sanitizeDocId(`c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
     const newClient: Client = {
       ...newClientData,
-      id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: cleanId,
       dateAdded: new Date().toISOString().split('T')[0],
     };
     const next = [newClient, ...stateRef.current.clients];
     setClients(next);
     saveToServer({ clients: next });
+    saveLeadToFirestore(newClient, firebaseUser?.uid).catch((err) => console.warn('Firestore addClient err:', err));
     return newClient;
-  }, [saveToServer]);
+  }, [saveToServer, firebaseUser]);
 
   const updateClient = useCallback((id: string, updates: Partial<Client>) => {
-    // NOTE: This is a pure state update — does NOT navigate, does NOT reload
     const next = stateRef.current.clients.map((c) => (c.id === id ? { ...c, ...updates } : c));
     setClients(next);
     saveToServer({ clients: next });
-  }, [saveToServer]);
+    const updatedLead = next.find((c) => c.id === id);
+    if (updatedLead) {
+      saveLeadToFirestore(updatedLead, firebaseUser?.uid).catch((err) => console.warn('Firestore updateClient err:', err));
+    }
+  }, [saveToServer, firebaseUser]);
 
   const updateClients = useCallback((ids: string[], updates: Partial<Client>) => {
     if (!ids || ids.length === 0) return;
     const idSet = new Set(ids);
-    const next = stateRef.current.clients.map((c) => idSet.has(c.id) ? { ...c, ...updates } : c);
+    const next = stateRef.current.clients.map((c) => (idSet.has(c.id) ? { ...c, ...updates } : c));
     setClients(next);
     saveToServer({ clients: next });
-  }, [saveToServer]);
+    const updatedSubset = next.filter((c) => idSet.has(c.id));
+    saveLeadsToFirestore(updatedSubset, firebaseUser?.uid).catch((err) => console.warn('Firestore updateClients err:', err));
+  }, [saveToServer, firebaseUser]);
 
   const deleteClient = useCallback((id: string) => {
     const next = stateRef.current.clients.filter((c) => c.id !== id);
     setClients(next);
     saveToServer({ clients: next });
+    deleteLeadFromFirestore(id).catch((err) => console.warn('Firestore deleteClient err:', err));
     if (selectedClientId === id) setSelectedClientId(null);
   }, [selectedClientId, saveToServer]);
 
@@ -517,27 +595,68 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const next = stateRef.current.clients.filter((c) => !idSet.has(c.id));
     setClients(next);
     saveToServer({ clients: next });
+    deleteMultipleLeadsFromFirestore(ids).catch((err) => console.warn('Firestore deleteClients err:', err));
     if (selectedClientId && idSet.has(selectedClientId)) setSelectedClientId(null);
   }, [selectedClientId, saveToServer]);
 
-  const importClients = useCallback((newClientsData: Omit<Client, 'id' | 'dateAdded'>[], replace = false) => {
+  const importClients = useCallback(async (newClientsData: Omit<Client, 'id' | 'dateAdded'>[], replace = false) => {
     const today = new Date().toISOString().split('T')[0];
     const created: Client[] = newClientsData.map((c, i) => ({
       ...c,
-      id: `c-imp-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 5)}`,
+      id: sanitizeDocId((c as any).id || `c-imp-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 5)}`),
       dateAdded: today,
     }));
     const next = replace ? created : [...created, ...stateRef.current.clients];
     setClients(next);
-    saveToServer({ clients: next });
+
+    // 1. Save to dedicated Express Backend API
+    fetch('/api/leads/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-client-id': clientSessionId },
+      body: JSON.stringify({ leads: created, replace }),
+    }).catch((err) => console.warn('Backend import error:', err));
+
+    // 2. Persist to Firebase Firestore Cloud Database
+    setIsFirestoreSyncing(true);
+    try {
+      if (replace && stateRef.current.clients.length > 0) {
+        await deleteMultipleLeadsFromFirestore(stateRef.current.clients.map((c) => c.id));
+      }
+      const firestoreRes = await saveLeadsToFirestore(created, firebaseUser?.uid);
+      if (firestoreRes.success) {
+        setFirestoreLeadCount((prev) => (replace ? created.length : prev + created.length));
+      }
+    } catch (err) {
+      console.warn('Firestore import error:', err);
+    } finally {
+      setIsFirestoreSyncing(false);
+    }
+
     return created.length;
-  }, [saveToServer]);
+  }, [clientSessionId, firebaseUser]);
+
+  const syncLeadsToCloud = useCallback(async () => {
+    setIsFirestoreSyncing(true);
+    try {
+      const res = await saveLeadsToFirestore(stateRef.current.clients, firebaseUser?.uid);
+      if (res.success) {
+        setFirestoreLeadCount(res.count);
+      }
+      return res;
+    } finally {
+      setIsFirestoreSyncing(false);
+    }
+  }, [firebaseUser]);
 
   const resetToDefaultLeads = useCallback(() => {
     setClients([]);
     saveToServer({ clients: [] });
     setSelectedClientId(null);
+    if (stateRef.current.clients.length > 0) {
+      deleteMultipleLeadsFromFirestore(stateRef.current.clients.map((c) => c.id)).catch(() => {});
+    }
   }, [saveToServer]);
+
 
   const selectedClient = clients.find((c) => c.id === selectedClientId) || null;
 
@@ -720,6 +839,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     globalSearchQuery, setGlobalSearchQuery,
     callingSessionStats, setCallingSessionStats,
     currentCallingIndex, setCurrentCallingIndex,
+    isFirestoreSyncing, firebaseUser, firestoreLeadCount, syncLeadsToCloud,
   }), [
     activeTab, theme, toggleTheme, setTheme,
     authUser, authToken, switchActiveTeamMember, isAuthModalOpen,
@@ -735,6 +855,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     isNewClientModalOpen, isImportCSVModalOpen, isNewProjectModalOpen, isNewContentModalOpen,
     isNewInvoiceModalOpen, isShareModalOpen, isCommandPaletteOpen, globalSearchQuery,
     callingSessionStats, currentCallingIndex,
+    isFirestoreSyncing, firebaseUser, firestoreLeadCount, syncLeadsToCloud,
   ]);
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
