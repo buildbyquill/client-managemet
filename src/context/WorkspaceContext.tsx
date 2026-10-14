@@ -480,18 +480,41 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       (firestoreLeads) => {
         setIsFirestoreSyncing(false);
         if (firestoreLeads && firestoreLeads.length > 0) {
+          // Firestore has data — load it into the app (overrides localStorage)
           const cleaned = firestoreLeads.filter(
             (c: any) => !['client-1', 'client-2', 'client-3', 'client-4'].includes(c.id)
           );
           setClients(cleaned);
           setFirestoreLeadCount(cleaned.length);
+          // Keep local Express backup in sync too
           saveToServer({ clients: cleaned });
         } else {
-          // If Firestore is empty but we have local/server leads, auto-sync them to Firestore
-          if (stateRef.current.clients.length > 0) {
-            saveLeadsToFirestore(stateRef.current.clients, firebaseUser.uid)
+          // Firestore is empty — push whatever we have locally up to the cloud
+          // Read directly from localStorage to avoid stale stateRef race
+          let localLeads: Client[] = stateRef.current.clients;
+          if (localLeads.length === 0) {
+            try {
+              const raw = localStorage.getItem(STORAGE_KEYS.CLIENTS);
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  localLeads = parsed.filter(
+                    (c: any) => !['client-1', 'client-2', 'client-3', 'client-4'].includes(c.id)
+                  );
+                }
+              }
+            } catch {}
+          }
+          if (localLeads.length > 0) {
+            console.log(`Auto-syncing ${localLeads.length} leads from local storage → Firestore`);
+            saveLeadsToFirestore(localLeads, firebaseUser.uid)
               .then((res) => {
-                if (res.success) setFirestoreLeadCount(res.count);
+                if (res.success) {
+                  setFirestoreLeadCount(res.count);
+                  console.log(`✅ ${res.count} leads uploaded to Firestore successfully`);
+                } else {
+                  console.warn('Auto-sync to Firestore failed:', res.error);
+                }
               })
               .catch((err) => console.warn('Auto-sync to Firestore failed:', err));
           }
