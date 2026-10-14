@@ -1,0 +1,51 @@
+{
+  "entities": {
+    "Client": {
+      "title": "Client / Lead",
+      "description": "Lead and client record managed by operators",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 256 },
+        "company": { "type": "string", "maxLength": 256 },
+        "email": { "type": "string", "maxLength": 256 },
+        "phone": { "type": "string", "maxLength": 64 },
+        "stage": { "type": "string", "maxLength": 64 },
+        "value": { "type": "number" },
+        "niche": { "type": "string", "maxLength": 128 },
+        "assignedTo": { "type": "string", "maxLength": 128 },
+        "dateAdded": { "type": "string", "maxLength": 64 },
+        "notes": { "type": "string", "maxLength": 2048 },
+        "keyDetail": { "type": "string", "maxLength": 2048 },
+        "priority": { "type": "string", "maxLength": 64 },
+        "userId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "name"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "Studio client project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 256 },
+        "clientId": { "type": "string", "maxLength": 128 },
+        "clientName": { "type": "string", "maxLength": 256 },
+        "budget": { "type": "number" },
+        "status": { "type": "string", "maxLength": 64 },
+        "userId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "title"]
+    }
+  },
+  "firestore": {
+    "/clients/{clientId}": {
+      "schema": "Client",
+      "description": "Collection of client leads"
+    },
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Collection of studio projects"
+    }
+  }
+}

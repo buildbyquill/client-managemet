@@ -1,0 +1,35 @@
+[
+  {
+    "id": "usr-ayush",
+    "username": "ayush",
+    "passwordHash": "57d032ad71f5da812665fe1f5a99c1cfdc82f8023bbf7806d980943173c5ba3955bb376fdfe675f5e9f20606a48edf8edcc7220767e163d15ee985edc89c9df6",
+    "salt": "a2633b310edf18aef044e98bf75c8358",
+    "name": "Ayush",
+    "role": "Founder",
+    "avatarColor": "bg-indigo-600",
+    "initials": "AY",
+    "createdAt": "2026-09-02T16:55:00.000Z"
+  },
+  {
+    "id": "usr-jai",
+    "username": "jai",
+    "passwordHash": "c09d0c002176d7cc314296c51da00414d74a0163d3d1ab8ccfe099960a1d7955cd7bdd3284799fac9e731cfd4b860cc7b7985ffae9959e07c782dfc905f417cb",
+    "salt": "29c61826d03a31938a9ba5426086b508",
+    "name": "Jai",
+    "role": "Developer",
+    "avatarColor": "bg-emerald-600",
+    "initials": "JA",
+    "createdAt": "2026-09-02T16:55:00.000Z"
+  },
+  {
+    "id": "usr-harvansh",
+    "username": "harvansh",
+    "passwordHash": "18791940cccf588c787293efe35d5894499234214fb86cc50cdc711f0e1b8b10f9f74063b4ed9e1558219cd50f1f6abf3b70df9883da954ae9e6496afa43fc97",
+    "salt": "850629cbfd7d7db9d7def31e94c4b048",
+    "name": "Harvansh",
+    "role": "Outreach & Sales",
+    "avatarColor": "bg-amber-600",
+    "initials": "HA",
+    "createdAt": "2026-09-02T16:55:00.000Z"
+  }
+]

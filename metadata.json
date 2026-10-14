@@ -1,0 +1,6 @@
+{
+  "name": "Quill Land Client Management Tool",
+  "description": "Streamlined client and lead management tool to display, filter, and manage leads from CSV data with contact information, website status, priority, and outreach tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

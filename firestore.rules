@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global helper primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Clients / Leads Collection
+    match /clients/{clientId} {
+      allow read, write: if isSignedIn() && isValidId(clientId);
+    }
+
+    // Projects Collection
+    match /projects/{projectId} {
+      allow read, write: if isSignedIn() && isValidId(projectId);
+    }
+
+    // Content Pieces Collection
+    match /contentPieces/{contentId} {
+      allow read, write: if isSignedIn() && isValidId(contentId);
+    }
+
+    // Ideas Collection
+    match /dumpIdeas/{ideaId} {
+      allow read, write: if isSignedIn() && isValidId(ideaId);
+    }
+
+    // Team Chat Messages Collection
+    match /teamChatMessages/{messageId} {
+      allow read, write: if isSignedIn() && isValidId(messageId);
+    }
+  }
+}
