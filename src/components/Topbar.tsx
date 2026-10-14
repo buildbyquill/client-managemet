@@ -13,7 +13,16 @@ import {
 } from 'lucide-react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { QuillLogo } from './QuillLogo';
-import { auth, googleProvider, signInWithPopup, firebaseSignOut, onAuthStateChanged, FirebaseUser } from '../lib/firebase';
+import {
+  auth,
+  googleProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  firebaseSignOut,
+  onAuthStateChanged,
+  FirebaseUser,
+} from '../lib/firebase';
 
 export const Topbar: React.FC = () => {
   const {
@@ -29,20 +38,47 @@ export const Topbar: React.FC = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       setFirebaseUser(user);
     });
-    return () => unsubscribe();
+    // Handle redirect result on page load (for Cloudflare Pages)
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+          setFirebaseUser(result.user);
+        }
+      })
+      .catch((err) => {
+        console.warn('Redirect result error:', err.code);
+      });
+    return () => unsubscribeAuth();
   }, []);
 
+  // Smart sign-in: use redirect on deployed domains (popup blocked), popup on localhost
   const handleGoogleSignIn = async () => {
     setAuthLoading(true);
+    setAuthError(null);
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     try {
-      await signInWithPopup(auth, googleProvider);
+      if (isLocalhost) {
+        await signInWithPopup(auth, googleProvider);
+      } else {
+        // On Cloudflare Pages: use redirect flow (no popup blockers)
+        await signInWithRedirect(auth, googleProvider);
+      }
     } catch (err: any) {
-      console.error('Firebase Google Auth error:', err);
+      console.error('Firebase Google Auth error:', err.code, err.message);
+      if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user') {
+        // Fallback to redirect if popup is blocked
+        try { await signInWithRedirect(auth, googleProvider); } catch {}
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setAuthError('Domain not authorized. Please add this domain to Firebase Console → Authentication → Settings → Authorized Domains.');
+      } else {
+        setAuthError(err.message || 'Sign-in failed');
+      }
     } finally {
       setAuthLoading(false);
     }
@@ -51,6 +87,7 @@ export const Topbar: React.FC = () => {
   const handleFirebaseSignOut = async () => {
     try {
       await firebaseSignOut(auth);
+      setFirebaseUser(null);
     } catch (err: any) {
       console.error('Firebase Sign Out error:', err);
     }
@@ -103,16 +140,23 @@ export const Topbar: React.FC = () => {
             </button>
           </div>
         ) : (
-          <button
-            onClick={handleGoogleSignIn}
-            disabled={authLoading}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-xl border bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20 hover:bg-amber-500/20 transition shadow-2xs"
-            title="Sign in with Google via Firebase Auth"
-            aria-label="Sign in with Google"
-          >
-            <LogIn className="w-3.5 h-3.5 text-amber-500" />
-            <span>{authLoading ? 'Signing in...' : 'Sign In'}</span>
-          </button>
+          <div className="hidden sm:flex flex-col items-end gap-1">
+            <button
+              onClick={handleGoogleSignIn}
+              disabled={authLoading}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-xl border bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20 hover:bg-amber-500/20 transition shadow-2xs disabled:opacity-60"
+              title="Sign in with Google via Firebase Auth"
+              aria-label="Sign in with Google"
+            >
+              <LogIn className="w-3.5 h-3.5 text-amber-500" />
+              <span>{authLoading ? 'Redirecting...' : 'Sign In'}</span>
+            </button>
+            {authError && (
+              <div className="absolute top-14 right-4 z-50 max-w-xs bg-rose-600 text-white text-[10px] leading-tight px-3 py-2 rounded-lg shadow-lg">
+                ⚠️ {authError}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Live Database Sync Status */}

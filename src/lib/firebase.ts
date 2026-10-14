@@ -3,6 +3,8 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut as firebaseSignOut,
   onAuthStateChanged,
   User as FirebaseUser,
@@ -27,6 +29,9 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const googleProvider = new GoogleAuthProvider();
+// Request email and profile so we get displayName and photoURL
+googleProvider.addScope('email');
+googleProvider.addScope('profile');
 
 // Connection verification
 export async function testFirestoreConnection() {
@@ -42,6 +47,8 @@ export async function testFirestoreConnection() {
 
 export {
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   firebaseSignOut,
   onAuthStateChanged,
   collection,

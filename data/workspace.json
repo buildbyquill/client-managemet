@@ -1,6 +1,45 @@
 {
   "clients": [
     {
+      "name": "Import Test 1",
+      "title": "Alpha Cafe",
+      "industry": "Food & Beverage",
+      "city": "Mohali",
+      "leadPriority": "High",
+      "stage": "Lead",
+      "value": 1500,
+      "assignedTo": "Outreach",
+      "status": "New Lead",
+      "id": "c-imp-1791975105917-0-y8cd",
+      "dateAdded": "2026-10-14"
+    },
+    {
+      "name": "Import Test 2",
+      "title": "Beta Studio",
+      "industry": "Photography",
+      "city": "Chandigarh",
+      "leadPriority": "Medium",
+      "stage": "Lead",
+      "value": 1200,
+      "assignedTo": "Outreach",
+      "status": "New Lead",
+      "id": "c-imp-1791975105917-1-qiw4",
+      "dateAdded": "2026-10-14"
+    },
+    {
+      "name": "Import Test 3",
+      "title": "Gamma Gym",
+      "industry": "Health & Fitness",
+      "city": "Panchkula",
+      "leadPriority": "Low",
+      "stage": "Lead",
+      "value": 900,
+      "assignedTo": "Outreach",
+      "status": "New Lead",
+      "id": "c-imp-1791975105917-2-yivp",
+      "dateAdded": "2026-10-14"
+    },
+    {
       "name": "Hotel Best Inn",
       "company": "Hotel Best Inn",
       "title": "Hotel Best Inn",
